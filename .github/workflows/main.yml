@@ -2,9 +2,9 @@ name: Typescript CI
 
 on:
     push:
-        branches: [ lab1 ]
+        branches: [ lab2 ]
     pull_request: 
-        branches: [ lab1 ]
+        branches: [ lab2 ]
 
 jobs:
     build:
