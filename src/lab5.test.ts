@@ -1,6 +1,6 @@
 
 import { describe, it, expect } from 'vitest';
-import { where, sort, groupBy, having, query } from '../src/lab4';
+import { where, sort, groupBy, having, query } from './lab5';
 
 type User = {
   id: number;
