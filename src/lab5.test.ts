@@ -1,82 +1,66 @@
-
 import { describe, it, expect } from 'vitest';
-import { where, sort, groupBy, having, query } from './lab5';
+import { where, groupBy, having, sort, query } from '../src/lab5';
 
-type User = {
+type Item = {
   id: number;
-  name: string;
-  surname: string;
-  age: number;
-  city: string;
+  category: string;
+  value: number;
 };
 
-const users: User[] = [
-  { id: 1, name: "John", surname: "Doe", age: 34, city: "NY" },
-  { id: 2, name: "John", surname: "Doe", age: 33, city: "NY" },
-  { id: 3, name: "John", surname: "Doe", age: 35, city: "LA" },
-  { id: 4, name: "Mike", surname: "Doe", age: 35, city: "LA" },
+const data: Item[] = [
+  { id: 1, category: 'A', value: 10 },
+  { id: 2, category: 'B', value: 20 },
+  { id: 3, category: 'A', value: 15 },
+  { id: 4, category: 'B', value: 25 },
+  { id: 5, category: 'C', value: 30 },
 ];
 
-describe('Pipeline - фильтрация, сортировка, группировка', () => {
-  
-  it('фильтрация и сортировка пользователей', () => {
-    const search = query<User>(
-      where("name", "John"),
-      where("surname", "Doe"),
-      sort("age")
-    );
+describe('query function sequence', () => {
 
-    const result = search(users);
+  it('filters with where', () => {
+    const result = query(
+      where('category', 'A')
+    )(data);
+
     expect(result).toEqual([
-      { id: 2, name: "John", surname: "Doe", age: 33, city: "NY" },
-      { id: 1, name: "John", surname: "Doe", age: 34, city: "NY" },
-      { id: 3, name: "John", surname: "Doe", age: 35, city: "LA" }
+      { id: 1, category: 'A', value: 10 },
+      { id: 3, category: 'A', value: 15 },
     ]);
   });
 
-  it('группировка пользователей по городу и фильтр групп', () => {
-    const groupAndFilter = query<User>(
-      groupBy("city"),
-      having((group) => group.items.length > 1)
-    );
+  it('sorts after where', () => {
+    const result = query(
+      where('category', 'B'),
+      sort('value')
+    )(data);
 
-    const grouped = groupAndFilter(users);
-
-    expect(grouped).toEqual([
-      {
-        key: "NY",
-        items: [
-          { id: 1, name: "John", surname: "Doe", age: 34, city: "NY" },
-          { id: 2, name: "John", surname: "Doe", age: 33, city: "NY" }
-        ]
-      },
-      {
-        key: "LA",
-        items: [
-          { id: 3, name: "John", surname: "Doe", age: 35, city: "LA" },
-          { id: 4, name: "Mike", surname: "Doe", age: 35, city: "LA" }
-        ]
-      }
+    expect(result).toEqual([
+      { id: 2, category: 'B', value: 20 },
+      { id: 4, category: 'B', value: 25 },
     ]);
   });
 
-  it('комбинированный конвейер: фильтр, группировка и having', () => {
-    const pipeline = query<User>(
-      where("surname", "Doe"),
-      groupBy("city"),
-      having((group) => group.items.some((u) => u.age > 34))
-    );
-
-    const result = pipeline(users);
+  it('groups after filtering', () => {
+    const result = query(
+      where('value', 10),
+      groupBy('category')
+    )(data);
 
     expect(result).toEqual([
-      {
-        key: "LA",
-        items: [
-          { id: 3, name: "John", surname: "Doe", age: 35, city: "LA" },
-          { id: 4, name: "Mike", surname: "Doe", age: 35, city: "LA" }
-        ]
-      }
+      { key: 'A', items: [{ id: 1, category: 'A', value: 10 }] }
+    ]);
+  });
+
+  it('supports full sequence: where -> sort -> groupBy -> having', () => {
+    const result = query(
+      where('value', 25),
+      sort('id'),
+      groupBy('category'),
+      having(g => g.items.length === 1)
+    )(data);
+
+    expect(result).toEqual([
+      { key: 'B', items: [{ id: 4, category: 'B', value: 25 }] }
     ]);
   });
 
