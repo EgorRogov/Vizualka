@@ -1,14 +1,8 @@
-import { defineConfig } from 'vitest/config'
+import { defineConfig } from 'vite';
+import reactPlugin from '@vitejs/plugin-react';
+import { resolve } from 'path';
 
-export default defineConfig ({
-    test: {
-        environment: 'node',
-        include: ['src/**/*.test.ts', 'src/**/*.spec.ts','src/lab1.test.ts'],
-        globals: false,
-        coverage: {
-            provider: 'v8',
-            reporter: ['text', 'lcov', 'html'],
-            reportsDirectory: 'coverage'
-        }
-    }
-})
+export default defineConfig({
+  // root: resolve(__dirname, 'src'), 
+  plugins: [reactPlugin({})],
+});
