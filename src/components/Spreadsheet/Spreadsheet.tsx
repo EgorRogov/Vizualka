@@ -1,87 +1,50 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Cell } from './Cell';
 import { ContextMenu } from './ContextMenu';
-import { useSpreadsheet } from '../hooks/useSpreadsheet';
+import { useSpreadsheet } from '../../hooks/useSpreadsheet';
+import { useAutosave } from '../../hooks/useAutosave';
+import { useResize } from '../../hooks/useResize';
+import { parseCellId, computeValue } from '../../utils/math';
+import { exportToJSON, exportToCSV, importFromCSV } from '../../services/dataConverter';
 
-const parseCellId = (id: string) => {
-  const match = id.match(/^([A-Z]+)(\d+)$/);
-  if (!match || !match[1] || !match[2]) return null;
-  const colStr = match[1];
-  const rowStr = match[2];
-  
-  let col = 0;
-  for (let i = 0; i < colStr.length; i++) {
-    col = col * 26 + (colStr.charCodeAt(i) - 64);
-  }
-  return { row: parseInt(rowStr, 10) - 1, col: col - 1 };
-};
+interface SpreadsheetProps {
+  rows?: number;
+  cols?: number;
+  docId: string;
+  onBack: () => void;
+}
 
-const computeValue = (value: string, allData: Record<string, string>): string => {
-  if (typeof value !== 'string' || !value.startsWith('=')) return value;
-  
-  try {
-    let formula = value.slice(1).toUpperCase();
-
-    formula = formula.replace(/(SUM|AVERAGE)\((?:([A-Z]+\d+):([A-Z]+\d+))\)/g, (match, func, startId, endId) => {
-      const start = parseCellId(startId);
-      const end = parseCellId(endId);
-      if (!start || !end) return '0';
-
-      const minRow = Math.min(start.row, end.row);
-      const maxRow = Math.max(start.row, end.row);
-      const minCol = Math.min(start.col, end.col);
-      const maxCol = Math.max(start.col, end.col);
-
-      const values: number[] = [];
-      for (let r = minRow; r <= maxRow; r++) {
-        for (let c = minCol; c <= maxCol; c++) {
-          const cellKey = `${String.fromCharCode(65 + c)}${r + 1}`;
-          const cellVal = parseFloat(allData[cellKey] || '0');
-          values.push(isNaN(cellVal) ? 0 : cellVal);
-        }
-      }
-
-      if (func === 'SUM') {
-        return values.reduce((acc, curr) => acc + curr, 0).toString();
-      }
-      if (func === 'AVERAGE') {
-        return values.length ? (values.reduce((acc, curr) => acc + curr, 0) / values.length).toString() : '0';
-      }
-      return '0';
-    });
-
-    formula = formula.replace(/[A-Z]+\d+/g, (match) => {
-      const val = allData[match] || '0';
-      if (val.toUpperCase() === 'TRUE') return 'true';
-      if (val.toUpperCase() === 'FALSE') return 'false';
-      return isNaN(Number(val)) ? `"${val}"` : val;
-    });
-
-    const result = eval(formula);
-    if (typeof result === 'boolean') return result ? 'TRUE' : 'FALSE';
-    return result !== undefined ? result.toString() : '';
-  } catch (e) {
-    return '#ERROR';
-  }
-};
-
-export const Spreadsheet: React.FC<{ rows?: number; cols?: number }> = ({ rows: initRows = 100, cols: initCols = 26 }) => {
+export const Spreadsheet: React.FC<SpreadsheetProps> = ({ rows: initRows = 100, cols: initCols = 26, docId ,onBack}) => {
   const spreadsheet = useSpreadsheet(initRows, initCols);
   
+  const { saveStatus } = useAutosave(docId, spreadsheet.cells);
+
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; row: number; col: number } | null>(null);
   const [activeCellId, setActiveCellId] = useState<string | null>(null);
   const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
   
-  const [resizingCol, setResizingCol] = useState<number | null>(null);
-  const [resizingRow, setResizingRow] = useState<number | null>(null);
-  const [startPos, setStartPos] = useState({ x: 0, y: 0 });
-  const [startDim, setStartDim] = useState({ w: 0, h: 0 });
-
+  const { startColResize, startRowResize } = useResize(spreadsheet);
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(600);
   const HEADER_HEIGHT = 30;
   const rowBuffer = 5; 
+  
+  useEffect(() => {
+    const savedData = localStorage.getItem(`my_spreadsheet_cells_${docId}`);
+    
+    if (savedData) {
+      const parsedCells = JSON.parse(savedData);
+
+      Object.entries(parsedCells).forEach(([cellKey, cellValue]) => {
+        const parsed = parseCellId(cellKey);
+        
+        if (parsed) {
+          spreadsheet.setCellValue(parsed.row, parsed.col, cellValue as string);
+        }
+      });
+    }
+  }, [docId]);
 
   useEffect(() => {
     const updateSize = () => {
@@ -157,20 +120,6 @@ export const Spreadsheet: React.FC<{ rows?: number; cols?: number }> = ({ rows: 
     }
   };
 
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (resizingCol !== null) spreadsheet.updateColumnWidth(resizingCol, startDim.w + (e.clientX - startPos.x));
-      if (resizingRow !== null) spreadsheet.updateRowHeight(resizingRow, startDim.h + (e.clientY - startPos.y));
-    };
-    const handleMouseUp = () => { setResizingCol(null); setResizingRow(null); };
-    
-    if (resizingCol !== null || resizingRow !== null) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-    }
-    return () => { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
-  }, [resizingCol, resizingRow, startPos, startDim, spreadsheet]);
-
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     setScrollTop(e.currentTarget.scrollTop);
   };
@@ -183,8 +132,78 @@ export const Spreadsheet: React.FC<{ rows?: number; cols?: number }> = ({ rows: 
     return rowsArray;
   }, [startIndex, endIndex]);
 
+  const handleExportJSON = () => {
+    const json = exportToJSON(spreadsheet.cells);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${docId}.json`;
+    a.click();
+  };
+
+  const handleExportCSV = () => {
+    const csv = exportToCSV(spreadsheet.cells, spreadsheet.rows, spreadsheet.cols);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${docId}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    const text = event.target?.result as string;
+    const data = file.name.endsWith('.json') ? JSON.parse(text) : importFromCSV(text);
+    spreadsheet.setAllCells(data);
+  };
+
+  if (file.name.endsWith('.csv')) {
+    reader.readAsText(file, 'windows-1251');
+  } else {
+    reader.readAsText(file, 'UTF-8');
+  }
+};
+
   return (
     <div className="spreadsheet-container" onClick={() => setContextMenu(null)}>
+      <div style={{
+        padding: '10px', 
+        background: '#f0f0f0', 
+        borderBottom: '1px solid #ccc', 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'space-between'
+      }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+        <button onClick={onBack}>&larr; Назад</button>
+        
+        <div style={{ borderLeft: '1px solid #aaa', paddingLeft: '15px', display: 'flex', gap: '5px' }}>
+          <button onClick={handleExportJSON}>JSON</button>
+          <button onClick={handleExportCSV}>CSV</button>
+          <label style={{ cursor: 'pointer', background: '#e0e0e0', padding: '2px 8px', borderRadius: '3px', border: '1px solid #ccc' }}>
+            Импорт
+            <input type="file" accept=".csv,.json" onChange={handleImport} style={{ display: 'none' }} />
+          </label>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+        <span>Документ: <b>{docId}</b></span>
+        <span style={{ 
+          fontWeight: 'bold', 
+          color: saveStatus === 'Ошибка сохранения' ? 'red' : saveStatus === 'Сохранение...' ? 'orange' : 'green' 
+        }}>
+          {saveStatus}
+        </span>
+      </div>
+    </div>
       <div className="formula-bar">
         <div className="cell-id">{activeCellId || ''}</div>
         <input 
@@ -213,15 +232,13 @@ export const Spreadsheet: React.FC<{ rows?: number; cols?: number }> = ({ rows: 
         style={{ height: viewportHeight, overflowY: 'auto', overflowX: 'auto', position: 'relative' }}
       >
         <div className="spreadsheet-grid" style={{ height: totalHeight, position: 'relative' }}>
-          
-          {/* Фиксированная высота шапки */}
           <div className="row header-row" style={{ position: 'sticky', top: 0, zIndex: 20, height: HEADER_HEIGHT }}>
             <div className="cell header-cell" style={{ width: 50, height: HEADER_HEIGHT }}>#</div>
             {columnHeaders.map((letter, c) => (
               <div key={letter} className="cell header-cell" style={{ width: spreadsheet.getColumnWidth(c), height: HEADER_HEIGHT, position: 'relative' }}>
                 {letter}
                 <div className="col-resize-handle" 
-                  onMouseDown={(e) => { e.stopPropagation(); setResizingCol(c); setStartPos({ x: e.clientX, y: 0 }); setStartDim({ w: spreadsheet.getColumnWidth(c), h: 0 }); }} 
+                  onMouseDown={(e) => startColResize(c,e)} 
                 />
               </div>
             ))}
@@ -242,7 +259,7 @@ export const Spreadsheet: React.FC<{ rows?: number; cols?: number }> = ({ rows: 
               <div className="cell header-cell" style={{ width: 50, position: 'relative' }}>
                 {r + 1}
                 <div className="row-resize-handle" 
-                  onMouseDown={(e) => { e.stopPropagation(); setResizingRow(r); setStartPos({ x: 0, y: e.clientY }); setStartDim({ w: 0, h: spreadsheet.getRowHeight(r) }); }}
+                  onMouseDown={(e) => startRowResize(r, e)}
                 />
               </div>
               {columnHeaders.map((_, c) => {
