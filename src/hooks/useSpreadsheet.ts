@@ -1,7 +1,12 @@
 import { useState, useCallback } from 'react';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { setBatchValues } from '@/store/slices/spreadsheetSlice';
 
-export const useSpreadsheet = (initialRows: number = 20, initialCols: number = 10) => {
-  const [cells, setCells] = useState<Record<string, string>>({});
+export const useSpreadsheet = (initialRows: number = 100, initialCols: number = 26) => {
+  const dispatch = useAppDispatch();
+  
+  const cells = useAppSelector((state) => state.spreadsheet.cells);
+  
   const [rows, setRows] = useState(initialRows);
   const [cols, setCols] = useState(initialCols);
   
@@ -15,14 +20,10 @@ export const useSpreadsheet = (initialRows: number = 20, initialCols: number = 1
     const col = key.charCodeAt(0) - 65;
     const row = parseInt(key.slice(1)) - 1;
     return { row, col };
-  },[]);
-
-  const setCellValue = useCallback((row: number, col: number, value: string) => {
-    setCells(prev => ({ ...prev, [getKey(row, col)]: value }));
-  },[getKey]);
+  }, []);
 
   const updateColumnWidth = useCallback((col: number, width: number) => 
-    setColumnWidths(prev => ({ ...prev, [col]: Math.max(50, width) })),[]);
+    setColumnWidths(prev => ({ ...prev, [col]: Math.max(50, width) })), []);
 
   const getColumnWidth = useCallback((col: number) => columnWidths[col] || 100, [columnWidths]);
 
@@ -34,20 +35,19 @@ export const useSpreadsheet = (initialRows: number = 20, initialCols: number = 1
   const modifyGrid = useCallback((
     transform: (row: number, col: number) => { r: number, c: number } | null
   ) => {
-    setCells(prevCells => {
-      const nextCells: Record<string, string> = {};
+    const nextCells: Record<string, string> = {};
 
-      Object.entries(prevCells).forEach(([key, value]) => {
-        const { row, col } = parseKey(key);
-        const result = transform(row, col);
+    Object.entries(cells).forEach(([key, value]) => {
+      const { row, col } = parseKey(key);
+      const result = transform(row, col);
 
-        if (result) {
-          nextCells[getKey(result.r, result.c)] = value;
-        }
-      });
-      return nextCells;
+      if (result) {
+        nextCells[getKey(result.r, result.c)] = value;
+      }
     });
-  }, [getKey, parseKey]);
+
+    dispatch(setBatchValues(nextCells));
+  }, [cells, getKey, parseKey, dispatch]);
 
   const addColumn = useCallback((afterCol: number) => {
     modifyGrid((r, c) => (c <= afterCol ? { r, c } : { r, c: c + 1 }));
@@ -75,15 +75,11 @@ export const useSpreadsheet = (initialRows: number = 20, initialCols: number = 1
     setRows(prev => Math.max(1, prev - 1));
   }, [modifyGrid]);
 
-  const setAllCells = useCallback((newCells: Record<string, string>) => {
-    setCells(newCells);
-  },[])
-  
   return { 
-    cells,rows, cols, setCellValue, 
+    cells, rows, cols, 
     deleteColumn, deleteRow, addColumn, addRow, 
     getKey, updateColumnWidth, getColumnWidth, 
-    updateRowHeight, getRowHeight,setAllCells,
+    updateRowHeight, getRowHeight,
     getRowHeightsDependencies: () => rowHeights 
   };
 };

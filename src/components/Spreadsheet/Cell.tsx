@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { updateCell } from '@/store/slices/spreadsheetSlice';
 
 interface CellProps {
   id: string;
-  value: string;
   displayValue: string;
-  onChange: (id: string, val: string) => void;
   isSelected: boolean;
   onSelect: (e: React.MouseEvent) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
@@ -12,9 +12,12 @@ interface CellProps {
   style?: React.CSSProperties;
 }
 
-export const Cell: React.FC<CellProps> = ({ 
-  id, value, displayValue, onChange, isSelected, onSelect, onKeyDown, onContextMenu, style 
+export const Cell: React.FC<CellProps> = ({
+  id, displayValue, isSelected, onSelect, onKeyDown, onContextMenu, style
 }) => {
+  const dispatch = useAppDispatch();
+  const value = useAppSelector((state) => state.spreadsheet.cells[id] || '');
+
   const [isEditing, setIsEditing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -39,9 +42,12 @@ export const Cell: React.FC<CellProps> = ({
         <input
           ref={inputRef}
           value={value}
-          onChange={(e) => onChange(id, e.target.value)}
+          onChange={(e) => dispatch(updateCell({ key: id, value: e.target.value }))}
           onBlur={() => setIsEditing(false)}
-          onKeyDown={(e) => { if (e.key === 'Enter') setIsEditing(false); e.stopPropagation(); }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') setIsEditing(false);
+            e.stopPropagation();
+          }}
         />
       ) : (
         <span>{displayValue}</span>

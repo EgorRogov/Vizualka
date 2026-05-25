@@ -1,11 +1,14 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Cell } from './Cell';
 import { ContextMenu } from './ContextMenu';
-import { useSpreadsheet } from '../../hooks/useSpreadsheet';
-import { useAutosave } from '../../hooks/useAutosave';
-import { useResize } from '../../hooks/useResize';
-import { parseCellId, computeValue } from '../../utils/math';
-import { exportToJSON, exportToCSV, importFromCSV } from '../../services/dataConverter';
+import { useSpreadsheet } from '@/hooks/useSpreadsheet';
+import { useResize } from '@/hooks/useResize';
+import { parseCellId, computeValue } from '@/utils/math';
+import { exportToJSON, exportToCSV, importFromCSV } from '@/services/dataConverter';
+import { useAppDispatch, useAppSelector } from '@/store/hooks';
+import { updateCell, setBatchValues } from '@/store/slices/spreadsheetSlice';
+import { fetchDocumentById, setActiveDocumentId } from '@/store/slices/documentsSlice';
+import { saveDocument } from '@/store/slices/documentsSlice';
 
 interface SpreadsheetProps {
   rows?: number;
@@ -15,10 +18,14 @@ interface SpreadsheetProps {
 }
 
 export const Spreadsheet: React.FC<SpreadsheetProps> = ({ rows: initRows = 100, cols: initCols = 26, docId ,onBack}) => {
+  const dispatch = useAppDispatch();
+  
+  const cells = useAppSelector((state) => state.spreadsheet.cells);
+  const saveStatus = useAppSelector((state) => state.ui.saveStatus);
+  const isLoading = useAppSelector((state) => state.documents.isLoading);
+
   const spreadsheet = useSpreadsheet(initRows, initCols);
   
-  const { saveStatus } = useAutosave(docId, spreadsheet.cells);
-
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; row: number; col: number } | null>(null);
   const [activeCellId, setActiveCellId] = useState<string | null>(null);
   const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
@@ -27,24 +34,16 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({ rows: initRows = 100, 
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(600);
+
   const HEADER_HEIGHT = 30;
   const rowBuffer = 5; 
   
   useEffect(() => {
-    const savedData = localStorage.getItem(`my_spreadsheet_cells_${docId}`);
-    
-    if (savedData) {
-      const parsedCells = JSON.parse(savedData);
-
-      Object.entries(parsedCells).forEach(([cellKey, cellValue]) => {
-        const parsed = parseCellId(cellKey);
-        
-        if (parsed) {
-          spreadsheet.setCellValue(parsed.row, parsed.col, cellValue as string);
-        }
-      });
+    if (docId) {
+      dispatch(setActiveDocumentId(docId));
+      dispatch(fetchDocumentById(docId));
     }
-  }, [docId]);
+  }, [docId, dispatch]);
 
   useEffect(() => {
     const updateSize = () => {
@@ -52,10 +51,25 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({ rows: initRows = 100, 
         setViewportHeight(window.innerHeight - 50);
       }
     };
+
     window.addEventListener('resize', updateSize);
     updateSize();
     return () => window.removeEventListener('resize', updateSize);
   }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isS = e.code === 'KeyS' || e.key.toLowerCase() === 'ы' || e.key.toLowerCase() === 's';
+      
+      if ((e.ctrlKey || e.metaKey) && isS) {
+        e.preventDefault();
+        dispatch(saveDocument());
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
+  }, [docId, dispatch]);
 
   const columnHeaders = useMemo(() => 
     Array.from({ length: spreadsheet.cols }, (_, c) => String.fromCharCode(65 + c)), 
@@ -133,7 +147,7 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({ rows: initRows = 100, 
   }, [startIndex, endIndex]);
 
   const handleExportJSON = () => {
-    const json = exportToJSON(spreadsheet.cells);
+    const json = exportToJSON(cells);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -143,7 +157,7 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({ rows: initRows = 100, 
   };
 
   const handleExportCSV = () => {
-    const csv = exportToCSV(spreadsheet.cells, spreadsheet.rows, spreadsheet.cols);
+    const csv = exportToCSV(cells, spreadsheet.rows, spreadsheet.cols);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -161,7 +175,7 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({ rows: initRows = 100, 
   reader.onload = (event) => {
     const text = event.target?.result as string;
     const data = file.name.endsWith('.json') ? JSON.parse(text) : importFromCSV(text);
-    spreadsheet.setAllCells(data);
+    dispatch(setBatchValues(data));
   };
 
   if (file.name.endsWith('.csv')) {
@@ -204,14 +218,14 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({ rows: initRows = 100, 
         </span>
       </div>
     </div>
+
       <div className="formula-bar">
         <div className="cell-id">{activeCellId || ''}</div>
         <input 
-          value={activeCellId ? (spreadsheet.cells[activeCellId] || '') : ''}
+          value={activeCellId ? (cells[activeCellId] || '') : ''}
           onChange={(e) => {
             if (!activeCellId) return;
-            const parsed = parseCellId(activeCellId);
-            if (parsed) spreadsheet.setCellValue(parsed.row, parsed.col, e.target.value);
+            dispatch(updateCell({ key: activeCellId, value: e.target.value }));
           }}
         />
       </div>
@@ -264,11 +278,12 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({ rows: initRows = 100, 
               </div>
               {columnHeaders.map((_, c) => {
                 const id = spreadsheet.getKey(r, c);
+                const cellValue = cells[id] || '';
                 return (
                   <Cell 
-                    key={id} id={id} value={spreadsheet.cells[id] || ''} 
-                    displayValue={computeValue(spreadsheet.cells[id] || '', spreadsheet.cells)}
-                    onChange={(id, v) => spreadsheet.setCellValue(r, c, v)}
+                    key={id}
+                    id={id}
+                    displayValue={computeValue(cellValue, cells)}
                     isSelected={selectedCells.has(id)} 
                     onSelect={(e) => handleCellSelect(id, e)} 
                     onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, row: r, col: c }); }}
