@@ -12,11 +12,13 @@ interface CellProps {
   style?: React.CSSProperties;
 }
 
-export const Cell: React.FC<CellProps> = ({
+const DEFAULT_CELL_DATA = { value: '', style: undefined };
+
+const CellComponent: React.FC<CellProps> = ({
   id, displayValue, isSelected, onSelect, onKeyDown, onContextMenu, style
 }) => {
   const dispatch = useAppDispatch();
-  const value = useAppSelector((state) => state.spreadsheet.cells[id] || '');
+  const cellData = useAppSelector((state) => state.spreadsheet.cells[id] || DEFAULT_CELL_DATA);
 
   const [isEditing, setIsEditing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -24,11 +26,35 @@ export const Cell: React.FC<CellProps> = ({
   useEffect(() => {
     if (isEditing && inputRef.current) inputRef.current.focus();
   }, [isEditing]);
+  const alignClass = `align-${cellData.style?.align || 'left'}`;
 
+  const cellStyles: React.CSSProperties = {
+    fontWeight: cellData.style?.bold ? 'bold' : 'normal',
+    fontStyle: cellData.style?.italic ? 'italic' : 'normal',
+    textDecoration: cellData.style?.underline ? 'underline' : 'none',
+    color: cellData.style?.textColor,
+    backgroundColor: cellData.style?.backgroundColor,
+  };
+
+  const formatDisplayValue = (val: string, format?: string) => {
+    if (!val) return val;
+    if (format === 'date') {
+      const date = !isNaN(Number(val)) ? new Date(Number(val)) : new Date(val);
+      return !isNaN(date.getTime()) ? date.toLocaleDateString() : val;
+    }
+    if (isNaN(Number(val))) return val;
+    const num = Number(val);
+    switch (format) {
+      case 'percent': return `${(num * 100).toFixed(0)}%`;
+      case 'currency': return `$${num.toLocaleString()}`;
+      default: return val;
+    }
+  };
+  
   return (
-    <div 
-      style={style} 
-      className={`cell ${isSelected ? 'selected' : ''}`}
+    <div
+    className={`cell ${isSelected ? 'selected' : ''} ${alignClass}`}
+      style={{ ...style, ...cellStyles }} 
       onClick={onSelect}
       onContextMenu={onContextMenu}
       onDoubleClick={() => setIsEditing(true)}
@@ -41,7 +67,8 @@ export const Cell: React.FC<CellProps> = ({
       {isEditing ? (
         <input
           ref={inputRef}
-          value={value}
+          style={{ ...cellStyles, textAlign: cellData.style?.align || 'left' }}
+          value={cellData.value}
           onChange={(e) => dispatch(updateCell({ key: id, value: e.target.value }))}
           onBlur={() => setIsEditing(false)}
           onKeyDown={(e) => {
@@ -50,8 +77,10 @@ export const Cell: React.FC<CellProps> = ({
           }}
         />
       ) : (
-        <span>{displayValue}</span>
+        <span>{formatDisplayValue(displayValue, cellData.style?.format)}</span>
       )}
     </div>
   );
 };
+
+export const Cell = React.memo(CellComponent);

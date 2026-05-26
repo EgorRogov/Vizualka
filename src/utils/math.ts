@@ -1,3 +1,5 @@
+import { CellData } from '@/store/slices/spreadsheetSlice';
+
 export const parseCellId = (id: string) => {
   const match = id.match(/^([A-Z]+)(\d+)$/);
   if (!match || !match[1] || !match[2]) return null;
@@ -11,7 +13,7 @@ export const parseCellId = (id: string) => {
   return { row: parseInt(rowStr, 10) - 1, col: col - 1 };
 };
 
-export const computeValue = (value: string, allData: Record<string, string>): string => {
+export const computeValue = (value: string, allData: Record<string, CellData>): string => {
   if (typeof value !== 'string' || !value.startsWith('=')) return value;
   
   try {
@@ -31,7 +33,7 @@ export const computeValue = (value: string, allData: Record<string, string>): st
       for (let r = minRow; r <= maxRow; r++) {
         for (let c = minCol; c <= maxCol; c++) {
           const cellKey = `${String.fromCharCode(65 + c)}${r + 1}`;
-          const cellVal = parseFloat(allData[cellKey] || '0');
+          const cellVal = parseFloat(allData[cellKey]?.value || '0');
           values.push(isNaN(cellVal) ? 0 : cellVal);
         }
       }
@@ -46,7 +48,7 @@ export const computeValue = (value: string, allData: Record<string, string>): st
     });
 
     formula = formula.replace(/[A-Z]+\d+/g, (match) => {
-      const val = allData[match] || '0';
+      const val = allData[match]?.value || '0';
       if (val.toUpperCase() === 'TRUE') return 'true';
       if (val.toUpperCase() === 'FALSE') return 'false';
       return isNaN(Number(val)) ? `"${val}"` : val;

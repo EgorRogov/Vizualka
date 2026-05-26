@@ -60,6 +60,36 @@ export const checkAuthStatus = createAsyncThunk(
   }
 );
 
+export const updateUserProfile = createAsyncThunk(
+  'auth/updateProfile',
+  async (newName: string, { getState, rejectWithValue }) => {
+    try {
+      const state = getState() as { auth: AuthState };
+      const userId = state.auth.user?.id;
+      if (!userId) throw new Error('Пользователь не авторизован');
+      return await mockApi.updateName(userId, newName);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Неизвестная ошибка при обновлении профиля';
+      return rejectWithValue(message);
+    }
+  }
+);
+
+export const changePassword = createAsyncThunk(
+  'auth/changePassword',
+  async (passData: { oldPass: string; newPass: string }, { getState, rejectWithValue }) => {
+    try {
+      const state = getState() as { auth: AuthState };
+      const userId = state.auth.user?.id;
+      if (!userId) throw new Error('Пользователь не авторизован');
+      return await mockApi.changePassword(userId, passData.oldPass, passData.newPass);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Неизвестная ошибка при смене пароля';
+      return rejectWithValue(message);
+    }
+  }
+);
+
 const authSlice = createSlice({
   name: 'auth',
   initialState,
@@ -127,6 +157,12 @@ const authSlice = createSlice({
       state.accessToken = null;
       state.isAuthenticated = false;
       state.isLoading = false; 
+    });
+
+    builder.addCase(updateUserProfile.fulfilled, (state, action) => {
+      if (state.user) {
+        state.user.name = action.payload.name;
+      }
     });
   },
 });

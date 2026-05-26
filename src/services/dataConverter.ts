@@ -1,3 +1,4 @@
+import { CellData } from "@/store/slices/spreadsheetSlice";
 
 export const exportToJSON = (cells: Record<string, string>): string => {
   return JSON.stringify(cells, null, 2);
@@ -24,36 +25,34 @@ export const exportToCSV = (cells: Record<string, string>, rows: number, cols: n
   return BOM + rowsData.map(row => row.join(';')).join('\n');
 };
 
-export const importFromCSV = (text: string): Record<string, string> => {
+export const importFromCSV = (text: string): Record<string, CellData> => {
   const cleanText = text.replace(/^\uFEFF|^[\s\uFEFF\xA0]+/, '');
-  
   const lines = cleanText.split(/\r?\n/).filter(line => line.trim() !== "");
   
   if (lines.length === 0) return {};
 
   const firstLine = lines[0] ?? "";
   const delimiter = firstLine.includes(',') ? ',' : ';';
+  const newCells: Record<string, CellData> = {};
 
-  const newCells: Record<string, string> = {};
-
-  const csvRows = Math.min(lines.length, 2000);
-  const csvCols = Math.min(firstLine.split(delimiter).length, 50);
-
-  for (let row = 0; row < csvRows; row++) {
+  for (let row = 0; row < lines.length; row++) {
     const line = lines[row];
     if (!line) continue;
 
-    const cells = line.split(delimiter);
-    for (let col = 0; col < Math.min(cells.length, csvCols); col++) {
-      let value = cells[col]?.trim() || '';
+    const regex = new RegExp(`${delimiter}(?=(?:(?:[^"]*"){2})*[^"]*$)`);
+    const cells = line.split(regex);
+
+    for (let col = 0; col < cells.length; col++) {
+      const rawValue = cells[col] ?? "";
+      let value = rawValue.trim();
       
       if (value.startsWith('"') && value.endsWith('"')) {
         value = value.slice(1, -1).replace(/""/g, '"');
       }
       
-      if (value) {
+      if (value !== "") {
         const key = `${String.fromCharCode(65 + col)}${row + 1}`;
-        newCells[key] = value;
+        newCells[key] = { value: value };
       }
     }
   }

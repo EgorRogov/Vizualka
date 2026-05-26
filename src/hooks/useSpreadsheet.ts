@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { setBatchValues } from '@/store/slices/spreadsheetSlice';
+import { CellData, setBatchValues } from '@/store/slices/spreadsheetSlice';
 
 export const useSpreadsheet = (initialRows: number = 100, initialCols: number = 26) => {
   const dispatch = useAppDispatch();
@@ -33,20 +33,19 @@ export const useSpreadsheet = (initialRows: number = 100, initialCols: number = 
   const getRowHeight = useCallback((row: number) => rowHeights[row] || 30, [rowHeights]);
 
   const modifyGrid = useCallback((
-    transform: (row: number, col: number) => { r: number, c: number } | null
-  ) => {
-    const nextCells: Record<string, string> = {};
-
-    Object.entries(cells).forEach(([key, value]) => {
-      const { row, col } = parseKey(key);
-      const result = transform(row, col);
-
-      if (result) {
-        nextCells[getKey(result.r, result.c)] = value;
-      }
-    });
-
-    dispatch(setBatchValues(nextCells));
+    transform: (row: number, col: number) => { r: number, c: number } | null) => {
+      const nextCells: Record<string, CellData> = {};
+      
+      Object.entries(cells).forEach(([key, value]) => {
+        const { row, col } = parseKey(key);
+        const result = transform(row, col);
+        
+        if (result) {
+          nextCells[getKey(result.r, result.c)] = value;
+        }
+      });
+      
+      dispatch(setBatchValues(nextCells));
   }, [cells, getKey, parseKey, dispatch]);
 
   const addColumn = useCallback((afterCol: number) => {

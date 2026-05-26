@@ -88,5 +88,32 @@ export const mockApi = {
       throw { status: 403, message: 'Доступ запрещен (Чужой документ)' };
     }
     return true;
+  },
+
+  updateName: async (userId: string, newName: string) => {
+    await delay(300);
+    const users: MockUser[] = JSON.parse(localStorage.getItem('mock_users') || '[]');
+    const user = users.find((u) => u.id === userId);
+    
+    if (!user) throw new Error('Пользователь не найден');
+
+    user.name = newName;
+    localStorage.setItem('mock_users', JSON.stringify(users));
+    
+    return { name: newName };
+  },
+  
+  changePassword: async (userId: string, oldPass: string, newPass: string) => {
+    await delay(300);
+    const users: MockUser[] = JSON.parse(localStorage.getItem('mock_users') || '[]');
+    const user = users.find((u) => u.id === userId);
+    
+    if (!user) throw new Error('Пользователь не найден');
+    if (user.password !== oldPass) throw new Error('Текущий пароль введен неверно');
+
+    user.password = newPass;
+    localStorage.setItem('mock_users', JSON.stringify(users));
+    
+    return { success: true };
   }
 };

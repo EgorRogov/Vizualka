@@ -5,7 +5,8 @@ import spreadsheetReducer, {
   undo,
   redo,
   clearSpreadsheet,
-  SpreadsheetState
+  SpreadsheetState,
+  CellData
 } from '../spreadsheetSlice';
 
 describe('spreadsheetSlice reducer', () => {
@@ -25,7 +26,7 @@ describe('spreadsheetSlice reducer', () => {
   test('должен записывать значение в ячейку и сохранять историю в past', () => {
     const state = spreadsheetReducer(initialState, updateCell({ key: 'A1', value: 'Хало' }));
     
-    expect(state.cells['A1']).toBe('Хало');
+    expect(state.cells['A1']).toEqual({ value: 'Хало' });
     expect(state.past).toHaveLength(1);
     expect(state.past[0]).toEqual({});
   });
@@ -33,7 +34,7 @@ describe('spreadsheetSlice reducer', () => {
   test('должен удалять ячейку, если передана пустая строка', () => {
     const stateWithCell: SpreadsheetState = {
       ...initialState,
-      cells: { 'B2': 'Удали меня' }
+      cells: { 'B2': { value: 'Удали меня' } }
     };
     const state = spreadsheetReducer(stateWithCell, updateCell({ key: 'B2', value: '   ' }));
     
@@ -41,7 +42,10 @@ describe('spreadsheetSlice reducer', () => {
   });
 
   test('должен заменять все ячейки через setBatchValues (для импорта)', () => {
-    const newCells = { 'A1': '123', 'B1': '456' };
+    const newCells: Record<string, CellData> = { 
+      'A1': { value: '123' }, 
+      'B1': { value: '456' } 
+    };
     const state = spreadsheetReducer(initialState, setBatchValues(newCells));
     
     expect(state.cells).toEqual(newCells);
@@ -59,23 +63,23 @@ describe('spreadsheetSlice reducer', () => {
     test('Undo (Ctrl+Z) должен откатывать назад', () => {
       const stateAfterUndo = spreadsheetReducer(stateWithHistory, undo());
       
-      expect(stateAfterUndo.cells['A1']).toBe('Первое');
+      expect(stateAfterUndo.cells['A1']).toEqual({ value: 'Первое' });
       expect(stateAfterUndo.future).toHaveLength(1);
-      expect(stateAfterUndo.future[0]).toEqual({ 'A1': 'Второе' });
+      expect(stateAfterUndo.future[0]).toEqual({ 'A1': { value: 'Второе' } });
     });
 
     test('Redo (Ctrl+Y) должен возвращать отмененное', () => {
       const stateAfterUndo = spreadsheetReducer(stateWithHistory, undo());
       const stateAfterRedo = spreadsheetReducer(stateAfterUndo, redo());
       
-      expect(stateAfterRedo.cells['A1']).toBe('Второе');
+      expect(stateAfterRedo.cells['A1']).toEqual({ value: 'Второе' });
       expect(stateAfterRedo.future).toHaveLength(0);
     });
   });
 
   test('должен полностью сбрасывать стейт при clearSpreadsheet', () => {
     const dirtyState: SpreadsheetState = {
-      cells: { 'C3': 'Данные' },
+      cells: { 'C3': { value: 'Данные' } },
       selectedCell: 'C3',
       rows: 100,
       cols: 26,

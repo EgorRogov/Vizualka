@@ -6,9 +6,10 @@ import { useResize } from '@/hooks/useResize';
 import { parseCellId, computeValue } from '@/utils/math';
 import { exportToJSON, exportToCSV, importFromCSV } from '@/services/dataConverter';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
-import { updateCell, setBatchValues } from '@/store/slices/spreadsheetSlice';
+import { updateCell, setBatchValues, selectCell, updateCellStyle, CellStyle, undo, redo, CellData } from '@/store/slices/spreadsheetSlice';
 import { fetchDocumentById, setActiveDocumentId } from '@/store/slices/documentsSlice';
 import { saveDocument } from '@/store/slices/documentsSlice';
+import { Toolbar } from './Toolbar';
 
 interface SpreadsheetProps {
   rows?: number;
@@ -57,19 +58,176 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({ rows: initRows = 100, 
     return () => window.removeEventListener('resize', updateSize);
   }, []);
 
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isS = e.code === 'KeyS' || e.key.toLowerCase() === 'ы' || e.key.toLowerCase() === 's';
+      const key = e.key.toLowerCase();
+      const code = e.code;
+      const isCtrlOrCmd = e.ctrlKey || e.metaKey;
       
-      if ((e.ctrlKey || e.metaKey) && isS) {
+      if (isCtrlOrCmd && (key === 'c' || key === 'с' || key === 'x' || key === 'ч')) {
         e.preventDefault();
+        e.stopPropagation();
+        
+        if (selectedCells.size === 0) return;
+        
+        const isCut = key === 'x' || key === 'ч' || code === 'KeyX';
+        const positions = Array.from(selectedCells).map(id => parseCellId(id)!);
+        const minRow = Math.min(...positions.map(p => p.row));
+        const maxRow = Math.max(...positions.map(p => p.row));
+        const minCol = Math.min(...positions.map(p => p.col));
+        const maxCol = Math.max(...positions.map(p => p.col));
+
+        const rowsLines: string[] = [];
+        const internalData: CellData[][] = [];
+        
+        for (let r = minRow; r <= maxRow; r++) {
+          const rowCells: string[] = [];
+          const rowData: CellData[] = [];
+          
+          for (let c = minCol; c <= maxCol; c++) {
+            const cellId = spreadsheet.getKey(r, c);
+            const cell = cells[cellId] || { value: '' };
+            rowCells.push(cell.value);
+            rowData.push(cell);
+          }
+
+          rowsLines.push(rowCells.join('\t'));
+          internalData.push(rowData);
+        }
+        
+        navigator.clipboard.writeText(rowsLines.join('\n'));
+        localStorage.setItem('spreadsheet_copy_buffer', JSON.stringify(internalData));
+        
+        if (isCut) {
+          selectedCells.forEach(id => dispatch(updateCell({ key: id, value: '' })));
+        }
+        return;
+      }
+      
+      if (isCtrlOrCmd && (key === 'v' || key === 'м' || code === 'KeyV')) {
+        e.preventDefault();
+        
+        navigator.clipboard.readText().then(text => {
+          const savedBuffer = localStorage.getItem('spreadsheet_copy_buffer');
+          const updates: Record<string, CellData> = { ...cells }; 
+          const startPos = parseCellId(activeCellId!);
+          if (!startPos) return;
+          
+          const isInternalCopy = savedBuffer && savedBuffer.startsWith('[');
+          
+          if (isInternalCopy) {
+            const data = JSON.parse(savedBuffer!) as CellData[][];
+            data.forEach((row, r) => {
+              row.forEach((cell, c) => {
+                const targetId = spreadsheet.getKey(startPos.row + r, startPos.col + c);
+                if (targetId) updates[targetId] = cell;
+              });
+            });
+          } else if (text) {
+            const rowsData = text.split(/\r?\n/).map(row => row.split('\t'));
+            rowsData.forEach((row, r) => {
+              row.forEach((val, c) => {
+                const targetId = spreadsheet.getKey(startPos.row + r, startPos.col + c);
+                const existingCell = updates[targetId] || { value: '' };
+                updates[targetId] = { ...existingCell, value: val };
+              });
+            });
+          } else {
+            return;
+          }
+          dispatch(setBatchValues(updates));
+        });
+        return;
+      }
+      
+      if (isCtrlOrCmd && (key === 's' || key === 'ы' || code === 'KeyS')) {
+        e.preventDefault();
+        e.stopPropagation();
         dispatch(saveDocument());
+        return;
+      }
+
+      if (isCtrlOrCmd && (key === 'z' || key === 'я' || code === 'KeyZ') && !e.shiftKey) {
+        e.preventDefault();
+        dispatch(undo());
+        return;
+      }
+
+      if (isCtrlOrCmd && (key === 'y' || key === 'н' || code === 'KeyY' || ((key === 'z' || key === 'я') && e.shiftKey))) {
+        e.preventDefault();
+        dispatch(redo());
+        return;
+      }
+
+      if (isCtrlOrCmd && activeCellId && (['b', 'i', 'u', 'и', 'ш', 'г'].includes(key) || ['KeyB', 'KeyI', 'KeyU'].includes(code))) {
+        e.preventDefault();
+        e.stopPropagation();
+        const isB = key === 'b' || key === 'и' || code === 'KeyB';
+        const isI = key === 'i' || key === 'ш' || code === 'KeyI';
+        const styleKey = isB ? 'bold' : isI ? 'italic' : 'underline';
+        const currentStyle = cells[activeCellId]?.style || {};
+        dispatch(updateCellStyle({ 
+          key: activeCellId, 
+          style: { [styleKey]: !currentStyle[styleKey as keyof CellStyle] } 
+        }));
+        return;
+      }
+
+      if (isCtrlOrCmd && (key === 'a' || key === 'ф' || code === 'KeyA')) {
+        e.preventDefault();
+        const allKeys = new Set<string>();
+        for (let r = 0; r < spreadsheet.rows; r++) {
+          for (let c = 0; c < spreadsheet.cols; c++) { 
+            allKeys.add(spreadsheet.getKey(r, c));
+          }
+        }
+        setSelectedCells(allKeys);
+        return;
+      }
+
+      if (key === 'escape' || code === 'Escape') {
+        if (document.activeElement?.tagName === 'INPUT') {
+          e.preventDefault();
+          (document.activeElement as HTMLInputElement).blur();
+        }
+        return;
+      }
+
+      if ((key === 'delete' || key === 'backspace' || code === 'Delete' || code === 'Backspace') && document.activeElement?.tagName !== 'INPUT') {
+        e.preventDefault();
+        selectedCells.forEach(id => dispatch(updateCell({ key: id, value: '' })));
+        return;
+      }
+
+      if (key === 'enter' || key === 'tab' || code === 'Enter' || code === 'Tab') {
+        if (activeCellId) {
+          e.preventDefault();
+          
+          if (document.activeElement?.tagName === 'INPUT') {
+            (document.activeElement as HTMLInputElement).blur();
+          }
+
+          const pos = parseCellId(activeCellId);
+          if (pos) {
+            const isEnter = key === 'enter' || code === 'Enter';
+            const nextRow = isEnter ? pos.row + 1 : pos.row;
+            const nextCol = !isEnter ? pos.col + 1 : pos.col;
+            
+            if (nextRow < spreadsheet.rows && nextCol < spreadsheet.cols) {
+              const nextId = spreadsheet.getKey(nextRow, nextCol);
+              dispatch(selectCell(nextId));
+              setActiveCellId(nextId);
+              setSelectedCells(new Set([nextId]));
+            }
+          }
+        }
       }
     };
     
     window.addEventListener('keydown', handleKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
-  }, [docId, dispatch]);
+  }, [activeCellId, cells, docId, dispatch, selectedCells, spreadsheet, setSelectedCells, setActiveCellId]);
 
   const columnHeaders = useMemo(() => 
     Array.from({ length: spreadsheet.cols }, (_, c) => String.fromCharCode(65 + c)), 
@@ -111,6 +269,7 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({ rows: initRows = 100, 
   }, [scrollTop, spreadsheet.rows, rowOffsets, viewportHeight]);
 
   const handleCellSelect = (id: string, e: React.MouseEvent) => {
+    dispatch(selectCell(id));
     if (e.shiftKey && activeCellId) {
       const start = parseCellId(activeCellId);
       const end = parseCellId(id);
@@ -147,7 +306,11 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({ rows: initRows = 100, 
   }, [startIndex, endIndex]);
 
   const handleExportJSON = () => {
-    const json = exportToJSON(cells);
+    const plainCells = Object.fromEntries(
+      Object.entries(cells).map(([key, data]) => [key, data.value])
+    );
+
+    const json = exportToJSON(plainCells);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -157,7 +320,11 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({ rows: initRows = 100, 
   };
 
   const handleExportCSV = () => {
-    const csv = exportToCSV(cells, spreadsheet.rows, spreadsheet.cols);
+    const plainCells = Object.fromEntries(
+      Object.entries(cells).map(([key, data]) => [key, data.value])
+    );
+    
+    const csv = exportToCSV(plainCells, spreadsheet.rows, spreadsheet.cols);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -218,11 +385,12 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({ rows: initRows = 100, 
         </span>
       </div>
     </div>
+      <Toolbar />
 
       <div className="formula-bar">
         <div className="cell-id">{activeCellId || ''}</div>
         <input 
-          value={activeCellId ? (cells[activeCellId] || '') : ''}
+          value={activeCellId ? (cells[activeCellId]?.value || '') : ''}
           onChange={(e) => {
             if (!activeCellId) return;
             dispatch(updateCell({ key: activeCellId, value: e.target.value }));
@@ -278,12 +446,13 @@ export const Spreadsheet: React.FC<SpreadsheetProps> = ({ rows: initRows = 100, 
               </div>
               {columnHeaders.map((_, c) => {
                 const id = spreadsheet.getKey(r, c);
-                const cellValue = cells[id] || '';
+                const cellValue = cells[id] || { value: '' };
                 return (
                   <Cell 
                     key={id}
                     id={id}
-                    displayValue={computeValue(cellValue, cells)}
+                    
+                    displayValue={computeValue(cellValue.value, cells)}
                     isSelected={selectedCells.has(id)} 
                     onSelect={(e) => handleCellSelect(id, e)} 
                     onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, row: r, col: c }); }}
