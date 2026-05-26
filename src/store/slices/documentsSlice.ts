@@ -20,8 +20,11 @@ export interface DocumentsState {
 }
 
 const getInitialDocuments = (): DocumentItem[] => {
-  const localDocs = localStorage.getItem('my_documents');
-  return localDocs ? (JSON.parse(localDocs) as DocumentItem[]) : [];
+  if (typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function') {
+    const localDocs = localStorage.getItem('my_documents');
+    return localDocs ? (JSON.parse(localDocs) as DocumentItem[]) : [];
+  }
+  return [];
 };
 
 const initialState: DocumentsState = {
