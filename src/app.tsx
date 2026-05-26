@@ -1,24 +1,36 @@
-import { Spreadsheet } from './components/Spreadsheet/Spreadsheet';
-import { Dashboard } from './components/Dashboard/Dashboard';
-import { useState } from 'react';
-import './App.css';
 import React from 'react';
+import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
+import './App.css';
+import { AppLayout } from './components/layout/AppLayout';
+import { ProtectedRoute } from './components/layout/ProtectedRoute';
+import { DashboardPage } from './components/pages/DashboardPage';
+import { ProfilePage } from './components/pages/ProfilePage';
+import { NotFoundPage } from './components/pages/NotFoundPage';
+import { SpreadsheetPage } from './components/pages/SpreadsheetPage';
+
+const router = createBrowserRouter([
+  {
+    path: '/',
+    element: <ProtectedRoute />,
+    children: [
+      {
+        element: <AppLayout />,
+        children: [
+          { index: true, element: <Navigate to="/dashboard" replace /> },
+          { path: 'dashboard', element: <DashboardPage /> },
+          { path: 'profile', element: <ProfilePage /> },
+        ],
+      },
+      { path: 'documents/:documentId', element: <SpreadsheetPage /> },
+    ],
+  },
+  { path: '*', element: <NotFoundPage /> },
+]);
 
 const App: React.FC = () => {
-  const [activeDocId,setActiveDocId] = useState<string|null>(null);
-
   return (
     <div className="app-container">
-      {activeDocId ? (
-        <Spreadsheet 
-          docId={activeDocId} 
-          onBack={() => setActiveDocId(null)} 
-          rows={1000} 
-          cols={26} 
-        />
-      ) : (
-        <Dashboard onOpenDoc={(id) => setActiveDocId(id)} />
-      )}
+      <RouterProvider router={router} />
     </div>
   );
 };

@@ -19,8 +19,13 @@ export interface DocumentsState {
   error: string | null;
 }
 
+const getInitialDocuments = (): DocumentItem[] => {
+  const localDocs = localStorage.getItem('my_documents');
+  return localDocs ? (JSON.parse(localDocs) as DocumentItem[]) : [];
+};
+
 const initialState: DocumentsState = {
-  items: [],
+  items: getInitialDocuments(),
   activeId: null,
   isLoading: false,
   error: null,
