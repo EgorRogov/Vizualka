@@ -17,7 +17,7 @@ describe('documentsSlice reducer', () => {
   };
 
   const mockDocs: DocumentItem[] = [
-    { id: 'doc-1', name: 'Таблица 1', rows: 100, cols: 26, createdAt: '2026', updatedAt: '2026' }
+    { id: 'doc-1', name: 'Таблица 1', rows: 100, cols: 26, createdAt: '2026', updatedAt: '2026', userId: 'user-123' }
   ];
 
   test('должен менять список документов через setDocuments', () => {

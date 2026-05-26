@@ -2,6 +2,7 @@ import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
 import { setBatchValues } from './spreadsheetSlice';
 import { setSaveStatus } from './uiSlice';
 import { RootState } from '../index'; 
+import { mockApi } from '../../api/mockApi';
 
 export interface DocumentItem {
   id: string;
@@ -10,6 +11,7 @@ export interface DocumentItem {
   cols: number;
   createdAt: string;
   updatedAt: string;
+  userId: string;
 }
 
 export interface DocumentsState {
@@ -19,16 +21,8 @@ export interface DocumentsState {
   error: string | null;
 }
 
-const getInitialDocuments = (): DocumentItem[] => {
-  if (typeof localStorage !== 'undefined' && typeof localStorage.getItem === 'function') {
-    const localDocs = localStorage.getItem('my_documents');
-    return localDocs ? (JSON.parse(localDocs) as DocumentItem[]) : [];
-  }
-  return [];
-};
-
 const initialState: DocumentsState = {
-  items: getInitialDocuments(),
+  items: [],
   activeId: null,
   isLoading: false,
   error: null,
@@ -36,9 +30,18 @@ const initialState: DocumentsState = {
 
 export const fetchDocuments = createAsyncThunk(
   'documents/fetchAll',
-  async () => {
-    const localDocs = localStorage.getItem('my_documents');
-    return localDocs ? (JSON.parse(localDocs) as DocumentItem[]) : [];
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      const state = getState() as RootState;
+      const currentUserId = state.auth.user?.id;
+
+      if (!currentUserId) return [];
+
+      return await mockApi.fetchDocuments(currentUserId);
+    } catch (err: unknown) {
+      const error = err as Error;
+      return rejectWithValue(error.message || 'Не удалось загрузить документы');
+    }
   }
 );
 
@@ -76,7 +79,7 @@ export const saveDocument = createAsyncThunk(
     
     localStorage.setItem('my_documents', JSON.stringify(updatedItems));
 
-    dispatch(setDocuments(updatedItems));
+    dispatch(fetchDocuments()); 
     dispatch(setSaveStatus('Сохранено'));
   }
 );
@@ -92,16 +95,65 @@ const documentsSlice = createSlice({
       state.activeId = action.payload;
     },
   },
-  
   extraReducers: (builder) => {
+    builder.addCase(fetchDocuments.pending, (state) => {
+      state.isLoading = true;
+      state.error = null;
+    });
     builder.addCase(fetchDocuments.fulfilled, (state, action) => {
       state.items = action.payload;
+      state.isLoading = false;
     });
+    builder.addCase(fetchDocuments.rejected, (state, action) => {
+      state.isLoading = false;
+      state.error = action.payload as string;
+    });
+
     builder.addCase(fetchDocumentById.fulfilled, (state, action) => {
       state.activeId = action.payload;
     });
+
+    builder.addMatcher(
+      (action) => action.type === 'documents/create/fulfilled',
+      (state, action: PayloadAction<DocumentItem>) => {
+        state.items.push(action.payload);
+      }
+    );
   },
 });
+
+export const createNewDocument = createAsyncThunk(
+  'documents/create',
+  async (docParams: { name: string; rows: number; cols: number }, { getState, dispatch, rejectWithValue }) => {
+    try {
+      const state = getState() as RootState;
+      const currentUserId = state.auth.user?.id;
+
+      if (!currentUserId) throw new Error('Пользователь не авторизован');
+
+      const newDoc: DocumentItem = {
+        id: `doc_${Date.now()}`,
+        name: docParams.name,
+        rows: docParams.rows,
+        cols: docParams.cols,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        userId: currentUserId,
+      };
+
+      const localDocs = localStorage.getItem('my_documents');
+      const currentItems: DocumentItem[] = localDocs ? JSON.parse(localDocs) : [];
+      currentItems.push(newDoc);
+      localStorage.setItem('my_documents', JSON.stringify(currentItems));
+
+      dispatch(fetchDocuments());
+      return newDoc;
+    } catch (err: unknown) {
+      const error = err as Error;
+      return rejectWithValue(error.message || 'Ошибка создания документа');
+    }
+  }
+);
 
 export const { setDocuments, setActiveDocumentId } = documentsSlice.actions;
 export default documentsSlice.reducer;
